@@ -60,6 +60,7 @@ def transcribe_audio(audio: AudioData) -> str:
     """
     Transcribes the given audio data to text using Google's speech recognition. If problems occur, empty string is returned.
     """
+    dbg.log("Transcribing..")
     try:
         transcription = r.recognize_google(audio, language="de-DE")
         return transcription.lower().strip()
@@ -104,7 +105,6 @@ if __name__ == "__main__":
         audio: AudioData = get_audio_input()
 
         # Try to transcribe what the user said
-        dbg.log("Transcribing..")
         transcription: str = transcribe_audio(audio)
         print(f"User: {transcription}")
 
@@ -128,7 +128,7 @@ if __name__ == "__main__":
                 for i in range(len(t.available_functions)):
                     if t.available_functions[i].__name__ == function_name:
                         result = t.available_functions[i](**arguments)
-                        messages.append({"role": "system", "tool_name": function_name, "tool_result": str(result), "content": "Werte das Ergebnis aus."})
+                        messages.append({"role": "system", "content": f"Aufgerufenes Tool: {function_name}, Argumente: {arguments}, Return: {str(result)}. Werte das Ergebnis aus."})
                         dbg.log(f"{MODEL_NAME} called tool {function_name} with args {arguments}, got result: {str(result)}")
 
                         # Feed back the result to the LLM to evaluate
