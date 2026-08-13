@@ -36,8 +36,9 @@ def open_terminal() -> None:
 
 def execute_terminal_command(command: str) -> str:
     """
-    Executes a bash command in the terminal and returns the output or error.
+    Executes a command in the terminal and returns the output or error.
     Use this for file management, system checks, or running installed CLI tools.
+    The default terminal app used is 'konsole'.
     """
     try:
         result = subprocess.run(

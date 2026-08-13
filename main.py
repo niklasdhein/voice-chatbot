@@ -10,7 +10,8 @@ from ollama import ChatResponse
 import logger
 
 # Used for text to speech and playing audio
-from gtts import gTTS
+import asyncio
+import edge_tts
 import pygame
 
 # Tools the LLM may use
@@ -32,12 +33,12 @@ dbg = logger.DebugLogger()
 wng = logger.WarningLogger()
 
 AI_NAME = "AVA"
-MODEL_NAME = "lfm2"     # Available lfm2, qwen2.5:7b
+MODEL_NAME = "gemma4:latest"     # Available lfm2, qwen2.5:7b, gemma4:latest
 
 messages = [
     {
         "role": "system",
-        "content": f"Du bist {AI_NAME}, ein nützlicher Assistent. Antworte kurz und präzise. Minimaler Humor erlaubt. Benutze KEINE Smileys oder Emojis."
+        "content": f"Du bist {AI_NAME}, ein nützlicher Assistent. Benutze KEINE Emojis und formatierten Ausdrücke. Antworte sehr knapp und präzise."
     }
 ]
 
@@ -75,8 +76,12 @@ def speak_response(response: str) -> None:
     """
     Converts the given text response to speech and plays it.
     """
-    tts = gTTS(text=response, lang="de", slow=False)
-    tts.save("output.mp3")
+    async def _generate():
+        communicate = edge_tts.Communicate(response, "de-DE-KatjaNeural", rate="+20%")
+        await communicate.save("output.mp3")
+    
+    asyncio.run(_generate())    # Generates output mp3 file
+
     pygame.mixer.music.load("output.mp3")
     pygame.mixer.music.play()
     while pygame.mixer.music.get_busy():    # Wait for the audio to finish playing
