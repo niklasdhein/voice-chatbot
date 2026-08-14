@@ -1,4 +1,6 @@
 # Speech Recognition stuff
+import io
+from faster_whisper import WhisperModel
 import speech_recognition as sr
 
 # Ollama stuff
@@ -24,6 +26,7 @@ import tools as t
 
 r = sr.Recognizer()
 r.pause_threshold = 1.5
+r.non_speaking_duration = 0.8
 
 mic = sr.Microphone()
 
@@ -34,6 +37,8 @@ wng = logger.WarningLogger()
 
 AI_NAME = "AVA"
 MODEL_NAME = "gemma4:latest"     # Available lfm2, qwen2.5:7b, gemma4:latest
+
+whisper = WhisperModel("small", device="cpu", compute_type="int8")    # cuda für gpu
 
 messages = [
     {
@@ -57,20 +62,19 @@ def get_audio_input() -> AudioData:
 
     return audio
 
-def transcribe_audio(audio: AudioData) -> str:
+def transcribe_audio(audio: sr.AudioData) -> str:
     """
     Transcribes the given audio data to text using Google's speech recognition. If problems occur, empty string is returned.
     """
     dbg.log("Transcribing..")
-    try:
-        transcription = r.recognize_google(audio, language="de-DE")
-        return transcription.lower().strip()
-    except sr.UnknownValueError:
-        wng.log("Could not understand what the user said")
-        return ""
-    except sr.RequestError as e:
-        wng.log(f"Could not request results from Google Speech Recognition service; {e}")
-        return ""
+
+    wav_bytes = audio.get_wav_data()    # AudioData to wav format
+    wav_stream = io.BytesIO(wav_bytes)  # Convert to Byte stream
+    
+    segments, info = whisper.transcribe(wav_stream, language="de")
+
+    text = "".join([segment.text for segment in segments]).lower().strip()
+    return text if text != "copyright wdr 2020" else ""
 
 def speak_response(response: str) -> None:
     """
@@ -80,6 +84,8 @@ def speak_response(response: str) -> None:
         communicate = edge_tts.Communicate(response, "de-DE-KatjaNeural", rate="+20%")
         await communicate.save("output.mp3")
     
+    dbg.log("Generating speech..")
+
     asyncio.run(_generate())    # Generates output mp3 file
 
     pygame.mixer.music.load("output.mp3")
