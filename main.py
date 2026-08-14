@@ -19,6 +19,8 @@ import pygame
 # Tools the LLM may use
 import tools as t
 
+import os
+
 
 # +--------+
 # |  VARS  |
@@ -37,13 +39,14 @@ wng = logger.WarningLogger()
 
 AI_NAME = "AVA"
 MODEL_NAME = "gemma4:latest"     # Available lfm2, qwen2.5:7b, gemma4:latest
+ROOT_PATH = "/home/niklas/Dokumente/python/speech-recognizer/"
 
 whisper = WhisperModel("small", device="cpu", compute_type="int8")    # cuda für gpu
 
 messages = [
     {
         "role": "system",
-        "content": f"Du bist {AI_NAME}, ein nützlicher Assistent. Benutze KEINE Emojis und formatierten Ausdrücke. Antworte sehr knapp und präzise."
+        "content": f"Du bist {AI_NAME}, ein nützlicher Assistent."
     }
 ]
 
@@ -73,7 +76,7 @@ def transcribe_audio(audio: sr.AudioData) -> str:
     
     segments, info = whisper.transcribe(wav_stream, language="de")
 
-    text = "".join([segment.text for segment in segments]).lower().strip()
+    text = "".join([segment.text for segment in segments]).strip()
     return text if text != "copyright wdr 2020" else ""
 
 def speak_response(response: str) -> None:
@@ -81,18 +84,20 @@ def speak_response(response: str) -> None:
     Converts the given text response to speech and plays it.
     """
     async def _generate():
-        communicate = edge_tts.Communicate(response, "de-DE-KatjaNeural", rate="+20%")
-        await communicate.save("output.mp3")
+        communicate = edge_tts.Communicate(response, "de-DE-KatjaNeural", rate="+50%")
+        await communicate.save(f"{ROOT_PATH}tmp/output.mp3")
     
     dbg.log("Generating speech..")
 
     asyncio.run(_generate())    # Generates output mp3 file
 
-    pygame.mixer.music.load("output.mp3")
+    pygame.mixer.music.load(f"{ROOT_PATH}tmp/output.mp3")
+    dbg.log("Speaking..")
     pygame.mixer.music.play()
     while pygame.mixer.music.get_busy():    # Wait for the audio to finish playing
         pygame.time.Clock().tick(10)
-    pygame.mixer.music.unload()     # Unload the audio file to free up resources
+    pygame.mixer.music.unload()             # Unload the audio file to free up resources
+    os.remove(f"{ROOT_PATH}tmp/output.mp3") # Prevent many files existing in different places, when working directories get changed, etc
 
 def adjust_recognizer(recognizer: sr.Recognizer, microphone: sr.Microphone, duration: float=0.5) -> None:
     """
@@ -102,54 +107,130 @@ def adjust_recognizer(recognizer: sr.Recognizer, microphone: sr.Microphone, dura
     with microphone as source:
         recognizer.adjust_for_ambient_noise(source, duration=duration)
 
+def execute_plan_call(call) -> str:
+    # Creates the plan as dictionary
+    plan = t.create_execution_plan(**call.function.arguments)
+
+    # Prepare a new temporary list of messages specifically for the plan execution
+    msgs = [{
+        "role": "system",
+        "content": f"Du bist ein KI Agent, der einen Plan abarbeitet. Hier die Zusammenfassung des gesamten Plans: {plan["summary"]}"
+    }]
+
+    # Go through each step
+    for key in plan["steps"]:
+        print(f"Working on task '{key}'..")
+        msgs.append({
+            "role": "system",
+            "content": f"Du arbeitest an folgendem Schritt des Plans: {key}. Hier eine genaue Beschreibung deiner Aufgabe: {plan["steps"][key]}. Nutze deine Tools, um die Aufgabe zu lösen."
+        })
+        
+        # Work on that task until completed
+        for i in range(10):
+            print(f"Try {i+1} running..")
+            resp = ask_assistant(msgs)  # Get a response from the agent
+
+            # If a tool call is requested, what hopefully had been, execute the tool
+            if resp.message.tool_calls:
+                call = resp.message.tool_calls[0]
+
+                if call.function.name == "mark_task_as_completed":
+                    msgs.append({
+                        "role": "system",
+                        "content": f"Du hast die Aufgabe '{key}' als erledigt gekennzeichnet. Die nächste Aufgabe wird dir bereitgestellt."
+                    })
+                    print("Task solved.")
+                    break
+
+                print(f"Executing '{call.function.name}' with args '{call.function.arguments}'..")
+                ret = execute_tool_call(call)
+                msgs.append({
+                    "role": "system",
+                    "content": f"Du hast '{call.function.name}' mit Args '{call.function.arguments}' aufgerufen und das Tool hat folgendes returnt: {ret} - Wenn Du deine aktuelle Aufgabe erledigt hast, markiere sie als erledigt"
+                })
+    
+    # Return information on how the plan execution went
+    return "Alle Schritte des Plans ausgeführt"
+
+
+def execute_tool_call(call) -> str:
+    """
+    Executes the tool for the given tool call. The function passes the return of the tool as a string.
+    If no tool was found for the given call 'Tool <function_name> not found' will be returned.
+    """
+    function_name = call.function.name
+    arguments =     call.function.arguments
+
+    # Handle plan usage in a seperate function
+    if function_name == "create_execution_plan":
+        execute_plan_call(call)
+        return "Plan ausgeführt"
+
+    # Match the called tool to an actual tool to call
+    for f in t.available_functions:
+        if f.__name__ != function_name: continue
+        
+        # Execute the function for that tool
+        ret = f(**arguments)
+
+        # Pass through the tool return as string
+        return str(ret)
+    
+    return f"Tool {function_name} nicht gefunden"
+
+def ask_assistant(m: list(dict)) -> ChatResponse:
+    return chat(model=MODEL_NAME, messages=m, tools=t.available_functions)
 
 # +-------------+
 # |  MAIN LOOP  |
 # +-------------+ 
 
 if __name__ == "__main__":
+    # Read soul.txt and append the content to messages
+    dbg.log("Reading soul..")
+    with open(f"{ROOT_PATH}agent/soul.txt", "r") as f:
+        messages.append({"role": "system", "content": f.read()})
+
     # Adjust for ambient noise to calibrate the microphone
+    dbg.log("Calibrating microphone..")
     adjust_recognizer(r, mic, 0.5)
 
     while True:
         # Get audio input from the user
         audio: AudioData = get_audio_input()
 
-        # Try to transcribe what the user said
+        # Get transcription, if not understood "" is returned
         transcription: str = transcribe_audio(audio)
-        print(f"User: {transcription}")
+        dbg.log(f"User: {transcription}")
+
+        # Continue if the transcription was empty
+        if transcription == "": continue
 
         # Check for exit
-        if transcription == "beenden" or transcription == "aus":
+        if "ausführung beenden" in transcription.lower():
             dbg.log("Exiting..")
             break
 
-        if transcription != "":
-            # Construct user message and append it to the messages list
-            messages.append({"role": "user", "content": transcription})
+        # Append what the user said in the right format to messages
+        messages.append({"role": "user", "content": f"{transcription} - Wenn notwendig, erstelle einen Ausführungsplan, um komplexe Aufgaben Stück für Stück zu lösen"})
 
-            # Get the model response
-            response = chat(model=MODEL_NAME, messages=messages, tools=t.available_functions)
+        # Get a response from the model
+        resp: ChatResponse =    ask_assistant(messages)
+        resp_msg: str =         resp.message.content
+        
+        # Execute tool call if requested, also let the LLM react to the tool outcome
+        if resp.message.tool_calls:
+            call = resp.message.tool_calls[0]
+            ret = execute_tool_call(call)
+            messages.append({
+                "role": "system",
+                "content": f"Du hast '{call.function.name}' mit Args '{call.function.arguments}' aufgerufen und das Tool hat folgendes returnt: {ret} - Werte aus"
+            })
+            resp = ask_assistant(messages)
+            resp_msg = resp.message.content
 
-            # Perform tool call
-            if response.message.tool_calls:
-                call = response.message.tool_calls[0]
-                function_name = call.function.name
-                arguments = call.function.arguments
-                for i in range(len(t.available_functions)):
-                    if t.available_functions[i].__name__ == function_name:
-                        result = t.available_functions[i](**arguments)
-                        messages.append({"role": "system", "content": f"Aufgerufenes Tool: {function_name}, Argumente: {arguments}, Return: {str(result)}. Werte das Ergebnis aus."})
-                        dbg.log(f"{MODEL_NAME} called tool {function_name} with args {arguments}, got result: {str(result)}")
-
-                        # Feed back the result to the LLM to evaluate
-                        response = chat(model=MODEL_NAME, messages=messages)
-                        break
-
-            # Print response to the console
-            print(f"{AI_NAME}: {response.message.content}")
-
-            # Play the generated speech
-            response_content = response.message.content
-            if response_content.strip() != "":
-                speak_response(response_content)
+        # Print the LLM response
+        print(f"{AI_NAME}: {resp_msg}")
+        
+        # Play the text-to-speech
+        if resp_msg.strip() != "": speak_response(resp_msg)

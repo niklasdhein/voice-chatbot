@@ -1,6 +1,8 @@
 from logger import WarningLogger
 import subprocess
 from datetime import datetime
+import os
+import json
 
 wng = WarningLogger()
 
@@ -71,9 +73,16 @@ def read_file(filepath: str) -> str:
     """
     Returns the content of a given filepath interpreted as text and returns the string.
     """
-    with open(filepath, "r") as f:
-        content = f.read()
-    return content
+    try:
+        with open(filepath, "r") as f:
+            content = f.read()
+        return content
+    except FileNotFoundError:
+        return f"Path {filepath} does not exist"
+    except PermissionError:
+        return f"Missing read-permissions for path {filepath}"
+    except OSError as e:
+        return f"A file error occured: {e}" 
 
 def overwrite_file(filepath: str, content: str) -> str:
     """
@@ -106,6 +115,40 @@ def append_to_file(filepath: str, content: str) -> str:
     except OSError as e:
         return f"A file error occured: {e}"
 
+def change_directory(dirpath: str) -> str:
+    """
+    Changes the directory to the given directory path.
+    """
+    if os.path.exists(dirpath): 
+        os.chdir(dirpath)
+        return f"Changed directory to {dirpath}"
+    else: return f"The path {dirpath} does not exist"
+
+
+# +-----------------+
+# |  SPECIAL TOOLS  |
+# +-----------------+
+
+def create_execution_plan(plan_json: str) -> dict:
+    """
+    This function takes the execution plan used to tackle more complex task as a string in json format.
+    Only use correct json syntax. Remember that also keys need to be inside of double-quotes.
+    The passed json needs to be of this format: {"summary": <short summary of the plan>, "steps": {<step_name>: <step_description>, ...}}
+    Internally it reformats that json to a python dictionary to be able to use it directly in the code to track progress.
+    The steps need to be this simple, that they can be accomplished with given tools.
+    """
+    print(f"Received plan {plan_json}")
+    try:
+        return json.loads(plan_json)
+    except json.JSONDecodeError as e:
+        return f"Der folgende JSON-String ist nicht gültig: {plan_json}"
+
+def mark_task_as_completed() -> True:
+    """
+    If you sucessfully achieved to goal of your task, call this tool to move on to the next one.
+    It returns True so that the program can handle the logic for serving the next task.
+    """
+    return True
 
 # Include all tools that may be used by LLMs here
 available_functions = [
@@ -117,5 +160,8 @@ available_functions = [
     get_current_date_and_time,
     read_file,
     overwrite_file,
-    append_to_file
+    append_to_file,
+    change_directory,
+    create_execution_plan,
+    mark_task_as_completed
 ]
