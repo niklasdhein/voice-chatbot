@@ -3,145 +3,252 @@ import subprocess
 from datetime import datetime
 import os
 import json
+from pathlib import Path
 
 wng = WarningLogger()
 
-def open_firefox() -> str:
-    "Opens the Firefox browser."
+
+# +-------------------------+
+# |  APPLICATION LAUNCHERS  |
+# +-------------------------+
+
+def open_browser(target: str = "") -> str:
+    """
+    Opens Firefox browser. Accepts a search term, a full URL, or an empty string for default startup.
+    Use absolute path when passing files as URL.
+    """
     try:
-        subprocess.Popen(['firefox'])
-        return "Started successfully"
+        if not target:
+            subprocess.Popen(['firefox'])
+            return "Firefox started successfully."
+        
+        if target.startswith(("http://", "https://", "file://")):
+            subprocess.Popen(['firefox', '--new-window', target])
+            return f"Opened URL '{target}' in a new Firefox window."
+        
+        subprocess.Popen(['firefox', '--search', target])
+        return f"Started Firefox and searched for '{target}'."
     except FileNotFoundError:
-        return "Couldn't find firefox"
+        return "Error: Firefox executable not found."
 
-def open_firefox_with_search(search_term: str="") -> str:
+def open_terminal() -> str:
     """
-    Opens Firefox browser. Uses default search engine to search the given term.
+    Opens the default terminal application (konsole).
     """
     try:
-        subprocess.Popen(['firefox', '--search', search_term])
-        return f"Started successfully and searched for {search_term}"
+        subprocess.Popen(['konsole'])
+        return "Opened terminal (konsole) successfully."
     except FileNotFoundError:
-        return "Couldn't find firefox"
+        return "Error: Konsole executable not found."
 
-def open_url(url: str) -> str:
+
+# +---------------------+
+# |  COMMAND EXECUTION  |
+# +---------------------+
+
+def execute_terminal_command(command: str, cwd: str = None) -> str:
     """
-    Opens a URL in firefox.
+    Executes a command in the shell and returns output or error.
+    Optional 'cwd' sets the working directory for the command execution.
     """
     try:
-        subprocess.Popen(['firefox', '--new-window', url])
-        return f"Opened {url} in a new window"
-    except FileNotFoundError:
-        return "Couldn't find firefox"
-
-def open_terminal() -> None:
-    """
-    Opens konsole.
-    """
-    subprocess.Popen(['konsole'])
-
-def execute_terminal_command(command: str) -> str:
-    """
-    Executes a command in the terminal and returns the output or error.
-    Use this for file management, system checks, or running installed CLI tools.
-    The default terminal app used is 'konsole'.
-    """
-    try:
+        # Fallback to current working directory if not explicitly provided
+        working_dir = cwd if cwd and os.path.exists(cwd) else os.getcwd()
+        
         result = subprocess.run(
             command, 
             shell=True, 
             text=True, 
             capture_output=True, 
-            timeout=10
+            timeout=10,
+            cwd=working_dir
         )
         if result.returncode == 0:
-            return result.stdout.strip() if result.stdout else "Command executed successfully"
-        return f"Error (Exit-Code {result.returncode}): {result.stderr.strip()}"
+            output = result.stdout.strip()
+            return output if output else "Command executed successfully with no output."
+        return f"Error (Exit Code {result.returncode}): {result.stderr.strip()}"
     except subprocess.TimeoutExpired:
-        return "Hit timeout of 10sec"
+        return "Error: Command timed out after 10 seconds."
     except Exception as e:
-        return f"Error while executing: {e}"
+        return f"Execution error: {e}"
+
+
+# +------------------+
+# |  DATA GATHERING  |
+# +------------------+
 
 def get_current_date_and_time() -> str:
     """
-    Returns current date, time and day of the week.
+    Returns current date, time, and day of the week in a structured format.
     """
     now = datetime.now()
-    return now.strftime("%A, %d. %B %Y - %H:%M Uhr")
+    return now.strftime("%Y-%m-%d %H:%M:%S (%A)")
 
-def read_file(filepath: str) -> str:
-    """
-    Returns the content of a given filepath interpreted as text and returns the string.
-    """
-    try:
-        with open(filepath, "r") as f:
-            content = f.read()
-        return content
-    except FileNotFoundError:
-        return f"Path {filepath} does not exist"
-    except PermissionError:
-        return f"Missing read-permissions for path {filepath}"
-    except OSError as e:
-        return f"A file error occured: {e}" 
 
-def overwrite_file(filepath: str, content: str) -> str:
+# +--------------------+
+# |  FILE INTERACTION  |
+# +--------------------+
+
+def replace_lines(filepath: str, start_line: int, end_line: int, new_content: str) -> str:
     """
-    Overwrites the content of the file specified through filepath. If this file does not exist, a new one will be created.
-    Be careful.
+    Replaces lines from start_line to end_line (inclusive, 1-indexed) in a file with new_content.
+    To delete lines, pass an empty string for new_content.
+    It is advised to use smaller texts to stay inside the context window.
     """
+    path = Path(filepath)
+    if not path.exists():
+        return f"Error: File '{filepath}' does not exist."
+
     try:
-        with open(filepath, "w") as f:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        total_lines = len(lines)
+
+        # Validation of line numbers
+        if start_line < 1 or end_line > total_lines or start_line > end_line:
+            return f"Error: Invalid area {start_line}-{end_line}. File has {total_lines} lines."
+
+        # Refactoring of new content to list with linebreaks
+        new_lines = [line + "\n" for line in new_content.splitlines()]
+
+        # Replace original lines with new lines and write to file
+        lines[start_line - 1 : end_line] = new_lines
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        return f"Sucess: Lines {start_line} to {end_line} were overwritten."
+
+    except Exception as e:
+        return f"Error while replacing lines: {e}"
+
+def insert_at_line(filepath: str, target_line: int, content_to_insert: str) -> str:
+    """
+    Inserts new content at the specified line number (1-indexed).
+    The existing line at target_line and all lines below it will be pushed down.
+    It is advised to use smaller texts to stay inside the context window.
+    """
+    path = Path(filepath)
+    if not path.exists():
+        return f"Error: File '{filepath}' does not exist."
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+
+        total_lines = len(lines)
+        
+        # If target line is greater than total lines, append at file end
+        if target_line > total_lines + 1:
+            target_line = total_lines + 1
+        elif target_line < 1:
+            target_line = 1
+
+        insert_lines = [line + "\n" for line in content_to_insert.splitlines()]
+
+        # Insert at specified position and write changes to file
+        lines[target_line - 1 : target_line - 1] = insert_lines
+
+        with open(path, "w", encoding="utf-8") as f:
+            f.writelines(lines)
+
+        return f"Success: Content inserted before line {target_line}."
+
+    except Exception as e:
+        return f"Error while inserting: {e}"
+
+def read_file_with_line_numbers(filepath: str) -> str:
+    """
+    Reads a file and returns its content with explicit line numbers (e.g. "1: import os").
+    """
+    path = Path(filepath)
+    if not path.exists():
+        return f"Fehler: Datei '{filepath}' existiert nicht."
+
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        
+        # Erstellt Ausgabe wie:
+        # 1: import os
+        # 2: import sys
+        numbered_lines = [f"{i + 1}: {line}" for i, line in enumerate(lines)]
+        return "".join(numbered_lines)
+
+    except Exception as e:
+        return f"Fehler beim Lesen der Datei: {e}"
+
+def replace_block(filepath: str, search_text: str, replace_text: str) -> str:
+    """
+    Replaces a unique block of text (search_text) with replace_text in the given file.
+    It is advised to use smaller texts to stay inside the context window.
+    """
+    path = Path(filepath)
+    if not path.exists():
+        return f"Error: File '{filepath}' does not exist."
+
+    with open(path, "r", encoding="utf-8") as f:
+        content = f.read()
+
+    if search_text not in content:
+        return "Error: The given search_text was not found in the file. Check for correct spelling."
+
+    if content.count(search_text) > 1:
+        return "Error: The given search_text appears more than once. Please pass an unique block."
+
+    new_content = content.replace(search_text, replace_text)
+
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(new_content)
+
+    return "Success: Textblock replaced sucessfully."
+
+def write_file(filepath: str, content: str) -> str:
+    """
+    Writes the given content into a file. If the file already exists, the content will be overwritten.
+    Else a new file will be created.
+    """
+    path = Path(filepath)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
             f.write(content)
-        return "File written successfully"
-    except FileNotFoundError:
-        return f"Path {filepath} does not exist"
-    except PermissionError:
-        return f"Missing write-permissions for path {filepath}"
-    except OSError as e:
-        return f"A file error occured: {e}"
+    except Exception as e:
+        return f"Error while writing file: {e}"
+    return "Content written into file successfully."
 
-def append_to_file(filepath: str, content: str) -> str:
-    """
-    Appends the given content onto the file specified through filepath. If this file does not exist, a new one will be created.
-    """
-    try:
-        with open(filepath, "a") as f:
-            f.write(content)
-        return "Appended content to file successfully"
-    except FileNotFoundError:
-        return f"Path {filepath} does not exist"
-    except PermissionError:
-        return f"Missing write-permissions for path {filepath}"
-    except OSError as e:
-        return f"A file error occured: {e}"
+
+# +----------------+
+# |  OS NAVIGATION |
+# +----------------+
 
 def change_directory(dirpath: str) -> str:
     """
-    Changes the directory to the given directory path.
+    Changes the working directory of the Python agent process.
     """
-    if os.path.exists(dirpath): 
+    try:
         os.chdir(dirpath)
-        return f"Changed directory to {dirpath}"
-    else: return f"The path {dirpath} does not exist"
+        return f"Changed process working directory to: {os.getcwd()}"
+    except FileNotFoundError:
+        return f"Error: Directory '{dirpath}' does not exist."
+    except PermissionError:
+        return f"Error: Permission denied for directory '{dirpath}'."
 
 
 # +-----------------+
-# |  SPECIAL TOOLS  |
+# |  PLAN HANDLING  |
 # +-----------------+
 
 def create_execution_plan(plan_json: str) -> dict:
     """
-    This function takes the execution plan used to tackle more complex task as a string in json format.
-    Only use correct json syntax. Remember that also keys need to be inside of double-quotes.
-    The passed json needs to be of this format: {"summary": <short summary of the plan>, "steps": {<step_name>: <step_description>, ...}}
-    Internally it reformats that json to a python dictionary to be able to use it directly in the code to track progress.
-    The steps need to be this simple, that they can be accomplished with given tools.
+    The function takes a json string that describes an execution plan used to break down complex tasks.
+    The format for the json is {"summary": <plan_summary>, "steps": {<step_name>: <step_description"}}.
+    For example: {"summary": "Update the Arch Linux System.", "steps": {"Terminal": "Open a new Terminal", "System Updaten": "Führe sudo pacman -Syu aus"}}
     """
-    print(f"Received plan {plan_json}")
     try:
         return json.loads(plan_json)
     except json.JSONDecodeError as e:
-        return f"Der folgende JSON-String ist nicht gültig: {plan_json}"
+        return f"Fehler bei der JSON-Verarbeitung: {e}"
 
 def mark_task_as_completed() -> True:
     """
@@ -152,16 +259,21 @@ def mark_task_as_completed() -> True:
 
 # Include all tools that may be used by LLMs here
 available_functions = [
-    open_firefox,
-    open_firefox_with_search,
-    open_url,
+    open_browser,
     open_terminal,
+
     execute_terminal_command,
+
     get_current_date_and_time,
-    read_file,
-    overwrite_file,
-    append_to_file,
+
+    replace_lines,
+    insert_at_line,
+    read_file_with_line_numbers,
+    replace_block,
+    write_file,
+
     change_directory,
+
     create_execution_plan,
     mark_task_as_completed
 ]

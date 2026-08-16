@@ -20,7 +20,7 @@ import pygame
 import tools as t
 
 import os
-
+from pathlib import Path
 
 # +--------+
 # |  VARS  |
@@ -28,7 +28,7 @@ import os
 
 r = sr.Recognizer()
 r.pause_threshold = 1.5
-r.non_speaking_duration = 0.8
+r.non_speaking_duration = 1.5
 
 mic = sr.Microphone()
 
@@ -43,12 +43,7 @@ ROOT_PATH = "/home/niklas/Dokumente/python/speech-recognizer/"
 
 whisper = WhisperModel("small", device="cpu", compute_type="int8")    # cuda für gpu
 
-messages = [
-    {
-        "role": "system",
-        "content": f"Du bist {AI_NAME}, ein nützlicher Assistent."
-    }
-]
+messages = []
 
 
 # +-------------+
@@ -108,50 +103,84 @@ def adjust_recognizer(recognizer: sr.Recognizer, microphone: sr.Microphone, dura
         recognizer.adjust_for_ambient_noise(source, duration=duration)
 
 def execute_plan_call(call) -> str:
-    # Creates the plan as dictionary
-    plan = t.create_execution_plan(**call.function.arguments)
+    plan: dict = t.create_execution_plan(**call.function.arguments)   # Creates a execution plan formatted as a dictionary
+    dbg.log(f"Plan: '{plan}'")
 
-    # Prepare a new temporary list of messages specifically for the plan execution
-    msgs = [{
-        "role": "system",
-        "content": f"Du bist ein KI Agent, der einen Plan abarbeitet. Hier die Zusammenfassung des gesamten Plans: {plan["summary"]}"
-    }]
+    base_system_prompt = {
+    "role": "system",
+    "content": (
+        f"Du bist ein autonomer KI-Agent. Dein Ziel: Abarbeiten eines Plans.\n"
+        f"Plan-Zusammenfassung: {plan['summary']}\n\n"
+        "REGELN:\n"
+        "- Führe Tools aus, um die Aufgaben zu lösen.\n"
+        "- Wenn du eine Teilaufgabe komplett gelöst hast, RUFE ZWINGEND das Tool 'mark_task_as_completed' auf.\n"
+        "- Schreibe keine Zusammenfassungen für den Nutzer, arbeite stumm deine Tools ab."
+        )
+    }
 
-    # Go through each step
+    # Track finished tasks as lightweight context for subsequent steps
+    completed_tasks = []
+
     for key in plan["steps"]:
-        print(f"Working on task '{key}'..")
+        print(f"\nWorking on task '{key}'..")
+        
+        # Fresh msgs list for EACH task step
+        msgs = [base_system_prompt]
+
+        # Provide lightweight summary of already finished steps
+        if completed_tasks:
+            msgs.append({
+                "role": "system",
+                "content": f"Bisher bereits erledigte Schritte in diesem Plan:\n- " + "\n- ".join(completed_tasks)
+            })
+
+        # Add current task instruction
         msgs.append({
-            "role": "system",
-            "content": f"Du arbeitest an folgendem Schritt des Plans: {key}. Hier eine genaue Beschreibung deiner Aufgabe: {plan["steps"][key]}. Nutze deine Tools, um die Aufgabe zu lösen."
+            "role": "user",
+            "content": f"Starte jetzt mit Aufgabe: {key}\nBeschreibung: {plan['steps'][key]}"
         })
         
-        # Work on that task until completed
-        for i in range(10):
-            print(f"Try {i+1} running..")
-            resp = ask_assistant(msgs)  # Get a response from the agent
-
-            # If a tool call is requested, what hopefully had been, execute the tool
+        # Work on the current step with a maximum amount of iterations / trys
+        max_iterations_for_step = 10
+        solved = False
+        for i in range(max_iterations_for_step):
+            if solved: break
+            
+            # Get model response for the current iteration
+            print(f"* Step '{key}' try {i+1}")
+            resp = ask_assistant(msgs)
+            msgs.append(resp.message)
+            
+            # Go through all tool calls
             if resp.message.tool_calls:
-                call = resp.message.tool_calls[0]
+                for call in resp.message.tool_calls:
+                    # Check if LLM wants to move on to next step of the plan
+                    if call.function.name == "mark_task_as_completed":
+                        print("Task solved.")
+                        completed_tasks.append(f"{key}: {plan['steps'][key]}")
+                        solved = True
 
-                if call.function.name == "mark_task_as_completed":
+                    dbg.log(f"Executing Tool: {call.function.name}")
+                    ret: str = execute_tool_call(call)
+
+                    # Append tool response with tool role
                     msgs.append({
-                        "role": "system",
-                        "content": f"Du hast die Aufgabe '{key}' als erledigt gekennzeichnet. Die nächste Aufgabe wird dir bereitgestellt."
+                        "role": "tool",
+                        "name": call.function.name,
+                        "content": str(ret)
                     })
-                    print("Task solved.")
-                    break
 
-                print(f"Executing '{call.function.name}' with args '{call.function.arguments}'..")
-                ret = execute_tool_call(call)
                 msgs.append({
-                    "role": "system",
-                    "content": f"Du hast '{call.function.name}' mit Args '{call.function.arguments}' aufgerufen und das Tool hat folgendes returnt: {ret} - Wenn Du deine aktuelle Aufgabe erledigt hast, markiere sie als erledigt"
+                    "role": "user",
+                    "content": "Alle Tools ausgeführt, wenn du mit dem Ergebnis zufrieden bist, rufe 'mark_task_as_completed' auf."
+                })
+            else:
+                msgs.append({
+                    "role": "user",
+                    "content": "Du hast kein Tool aufgerufen. Erledige deine Aufgabe durch Toolaufrufe. Wenn du fertig bist markiere diese als erledigt."
                 })
     
-    # Return information on how the plan execution went
     return "Alle Schritte des Plans ausgeführt"
-
 
 def execute_tool_call(call) -> str:
     """
@@ -163,74 +192,110 @@ def execute_tool_call(call) -> str:
 
     # Handle plan usage in a seperate function
     if function_name == "create_execution_plan":
-        execute_plan_call(call)
-        return "Plan ausgeführt"
+        return execute_plan_call(call)
 
     # Match the called tool to an actual tool to call
     for f in t.available_functions:
         if f.__name__ != function_name: continue
         
-        # Execute the function for that tool
-        ret = f(**arguments)
+        print(f"Executing '{call.function.name}' with args '{call.function.arguments}'..")
 
-        # Pass through the tool return as string
-        return str(ret)
+        # Execute tool with error handling
+        try:
+            ret = f(**arguments)
+            print(f"Tool returned '{ret}'")
+            return str(ret)
+        except TypeError as e:
+            # Catches missing parameters like missing 'search_text' and informs the agent
+            wng.log(f"Fehler bei Ausführung des Tools '{function_name}': Ungültige Argumente ({e}). Bitte mit allen benötigten Argumenten erneut probieren.")
+            return f"Fehler bei Ausführung des Tools '{function_name}': Ungültige Argumente ({e}). Bitte mit allen benötigten Argumenten erneut probieren."
+        except Exception as e:
+            wng.log(f"Fehler bei Ausführung des Tools '{function_name}': {e}")
+            return f"Fehler bei Ausführung des Tools '{function_name}': {e}"
     
     return f"Tool {function_name} nicht gefunden"
 
 def ask_assistant(m: list(dict)) -> ChatResponse:
-    return chat(model=MODEL_NAME, messages=m, tools=t.available_functions)
+    return chat(
+        model=MODEL_NAME, 
+        messages=m, 
+        tools=t.available_functions,
+        options={
+            "num_ctx": 8192  # Gives the LLM more space for code
+        }
+    )
+
 
 # +-------------+
 # |  MAIN LOOP  |
 # +-------------+ 
 
 if __name__ == "__main__":
-    # Read soul.txt and append the content to messages
     dbg.log("Reading soul..")
-    with open(f"{ROOT_PATH}agent/soul.txt", "r") as f:
-        messages.append({"role": "system", "content": f.read()})
+    
+    # Read Soul
+    soul_path = Path(ROOT_PATH) / "agent" / "soul.txt"
+    if soul_path.exists():
+        messages.append({"role": "system", "content": soul_path.read_text(encoding="utf-8")})
 
-    # Adjust for ambient noise to calibrate the microphone
     dbg.log("Calibrating microphone..")
     adjust_recognizer(r, mic, 0.5)
 
     while True:
-        # Get audio input from the user
+        # 1. Record audio and transcribe
         audio: AudioData = get_audio_input()
-
-        # Get transcription, if not understood "" is returned
         transcription: str = transcribe_audio(audio)
-        dbg.log(f"User: {transcription}")
+        print(f"User: {transcription}")
 
-        # Continue if the transcription was empty
-        if transcription == "": continue
+        if not transcription.strip():
+            continue
 
-        # Check for exit
         if "ausführung beenden" in transcription.lower():
             dbg.log("Exiting..")
             break
 
-        # Append what the user said in the right format to messages
-        messages.append({"role": "user", "content": f"{transcription} - Wenn notwendig, erstelle einen Ausführungsplan, um komplexe Aufgaben Stück für Stück zu lösen"})
+        # 2. User message
+        messages.append({"role": "user", "content": transcription})
 
-        # Get a response from the model
-        resp: ChatResponse =    ask_assistant(messages)
-        resp_msg: str =         resp.message.content
+        # Trim context, keep system prompt and last 10 messages
+        if len(messages) > 12:
+            messages = [messages[0]] + messages[-10:]
+
+        # 3. Request first respond from model
+        try:
+            resp: ChatResponse = ask_assistant(messages)
+        except Exception as e:
+            dbg.log(f"Ollama Error: {e}")
+            speak_response("Entschuldigung, ich hatte ein Problem beim Verarbeiten.")
+            continue
         
-        # Execute tool call if requested, also let the LLM react to the tool outcome
-        if resp.message.tool_calls:
-            call = resp.message.tool_calls[0]
-            ret = execute_tool_call(call)
-            messages.append({
-                "role": "system",
-                "content": f"Du hast '{call.function.name}' mit Args '{call.function.arguments}' aufgerufen und das Tool hat folgendes returnt: {ret} - Werte aus"
-            })
-            resp = ask_assistant(messages)
-            resp_msg = resp.message.content
+        # 4. Tool loop, as long as the LLM wants to call tools execute them
+        while resp.message.tool_calls:
+            # LLM response has to be appended in messages
+            messages.append(resp.message)
 
-        # Print the LLM response
+            for call in resp.message.tool_calls:
+                ret: str = execute_tool_call(call)
+
+                # Append tool response with tool role
+                messages.append({
+                    "role": "tool",
+                    "name": call.function.name,
+                    "content": str(ret)
+                })
+
+            # Request next step from LLM (another tool or response)
+            resp = ask_assistant(messages)
+
+        # 5. Save final answer and print
+        resp_msg: str = resp.message.content or ""
+        
+        messages.append({
+            "role": "assistant",
+            "content": resp_msg
+        })
+
         print(f"{AI_NAME}: {resp_msg}")
         
-        # Play the text-to-speech
-        if resp_msg.strip() != "": speak_response(resp_msg)
+        if resp_msg.strip():
+            speak_response(resp_msg)
