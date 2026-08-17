@@ -241,6 +241,7 @@ if __name__ == "__main__":
     dbg.log("Calibrating microphone..")
     adjust_recognizer(r, mic, 0.5)
 
+    standby = False
     while True:
         # 1. Record audio and transcribe
         audio: AudioData = get_audio_input()
@@ -249,10 +250,20 @@ if __name__ == "__main__":
 
         if not transcription.strip():
             continue
-
+        
+        # Quit
         if "ausführung beenden" in transcription.lower():
             dbg.log("Exiting..")
             break
+
+        # Toggle standby
+        if "standby" in transcription.lower() or "stand-by" in transcription.lower(): 
+            dbg.log("Toggeling standby..")
+            standby = not standby
+            continue
+
+        # Stay in standby
+        if standby: continue
 
         # 2. User message
         messages.append({"role": "user", "content": transcription})

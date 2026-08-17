@@ -158,9 +158,10 @@ def insert_at_line(filepath: str, target_line: int, content_to_insert: str) -> s
     except Exception as e:
         return f"Error while inserting: {e}"
 
-def read_file_with_line_numbers(filepath: str) -> str:
+def read_file_with_line_numbers(filepath: str, from_line: int=0, to_line: int=0) -> str:
     """
     Reads a file and returns its content with explicit line numbers (e.g. "1: import os").
+    Optionally pass from_line and to_line, including the line from_line, excluding to_line. If no from / to is given, the whole document will be read.
     """
     path = Path(filepath)
     if not path.exists():
@@ -169,11 +170,14 @@ def read_file_with_line_numbers(filepath: str) -> str:
     try:
         with open(path, "r", encoding="utf-8") as f:
             lines = f.readlines()
-        
-        # Erstellt Ausgabe wie:
-        # 1: import os
-        # 2: import sys
+
         numbered_lines = [f"{i + 1}: {line}" for i, line in enumerate(lines)]
+
+        # Return only portion of document
+        if from_line > 0 and to_line > 0 and from_line < len(numbered_lines) and to_line < len(numbered_lines):
+            return "".join(numbered_lines[from_line-1:to_line-1])
+        
+        # Return whole document
         return "".join(numbered_lines)
 
     except Exception as e:
@@ -269,7 +273,7 @@ available_functions = [
     replace_lines,
     insert_at_line,
     read_file_with_line_numbers,
-    replace_block,
+    # replace_block,
     write_file,
 
     change_directory,
