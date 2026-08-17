@@ -241,29 +241,31 @@ if __name__ == "__main__":
     dbg.log("Calibrating microphone..")
     adjust_recognizer(r, mic, 0.5)
 
-    standby = False
+    standby = True
     while True:
+        # Print warning message for when in standby
+        if standby: wng.log("In standby.")
+
         # 1. Record audio and transcribe
         audio: AudioData = get_audio_input()
         transcription: str = transcribe_audio(audio)
         print(f"User: {transcription}")
-
-        if not transcription.strip():
-            continue
         
-        # Quit
+        # Check for keywords / trigger-words
+        # Exit the program
         if "ausführung beenden" in transcription.lower():
             dbg.log("Exiting..")
             break
 
         # Toggle standby
-        if "standby" in transcription.lower() or "stand-by" in transcription.lower(): 
-            dbg.log("Toggeling standby..")
-            standby = not standby
+        elif "standby" in transcription.lower() or "stand-by" in transcription.lower() or "stand by" in transcription.lower(): 
+            dbg.log("Resuming from standby.." if standby else "Switching to standby..")
+            standby  = not standby
             continue
 
-        # Stay in standby
-        if standby: continue
+        # Skip if in standby or no speech was detected
+        if not transcription.strip() or standby:
+            continue
 
         # 2. User message
         messages.append({"role": "user", "content": transcription})
