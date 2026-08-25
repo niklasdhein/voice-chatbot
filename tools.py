@@ -46,22 +46,17 @@ def open_terminal() -> str:
 # |  COMMAND EXECUTION  |
 # +---------------------+
 
-def execute_terminal_command(command: str, cwd: str = None) -> str:
+def execute_terminal_command(command: str) -> str:
     """
     Executes a command in the shell and returns output or error.
-    Optional 'cwd' sets the working directory for the command execution.
     """
     try:
-        # Fallback to current working directory if not explicitly provided
-        working_dir = cwd if cwd and os.path.exists(cwd) else os.getcwd()
-        
         result = subprocess.run(
             command, 
             shell=True, 
             text=True, 
             capture_output=True, 
-            timeout=10,
-            cwd=working_dir
+            timeout=10
         )
         if result.returncode == 0:
             output = result.stdout.strip()
@@ -254,10 +249,10 @@ def create_execution_plan(plan_json: str) -> dict:
     except json.JSONDecodeError as e:
         return f"Fehler bei der JSON-Verarbeitung: {e}"
 
-def mark_task_as_completed() -> True:
+def mark_step_as_complete() -> True:
     """
-    If you sucessfully achieved to goal of your task, call this tool to move on to the next one.
-    It returns True so that the program can handle the logic for serving the next task.
+    This tool may only be called if a step of a task was completed successfully.
+    It marks the step as complete and is used to move onto the next step.
     """
     return True
 
@@ -279,5 +274,5 @@ available_functions = [
     change_directory,
 
     create_execution_plan,
-    mark_task_as_completed
+    mark_step_as_complete
 ]

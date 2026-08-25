@@ -285,7 +285,7 @@ if __name__ == "__main__":
         # 4. Tool loop, as long as the LLM wants to call tools execute them
         while resp.message.tool_calls:
             # LLM response has to be appended in messages
-            messages.append(resp.message)
+            messages.append(resp.message.content)
 
             for call in resp.message.tool_calls:
                 ret: str = execute_tool_call(call)
