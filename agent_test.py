@@ -25,7 +25,9 @@ def handle_task(task: str) -> str:
     TOOLS = [
         tools.execute_terminal_command,
         tools.read_file_with_line_numbers,
-        tools.write_file, 
+        tools.write_file,
+        tools.insert_at_line,
+        tools.change_directory,
         tools.mark_step_as_complete
     ]
 
