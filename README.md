@@ -2,8 +2,6 @@
 
 Ein lokaler, sprachgesteuerter KI-Assistent für den Desktop mit integrierter Agenten- und Tool-Calling-Architektur.
 
-AVA kombiniert lokale Spracherkennung (**Faster-Whisper**), lokale Sprachmodelle via **Ollama** und natürliche Sprachausgabe (**Edge-TTS**). Über ein integriertes Tool-Set kann der Assistent Aufgaben auf dem System autonom planen und ausführen (z. B. Terminal-Befehle, Dateioperationen, Browsersteuerung).
-
 ---
 
 ## Architektur-Übersicht
@@ -29,14 +27,14 @@ AVA kombiniert lokale Spracherkennung (**Faster-Whisper**), lokale Sprachmodelle
 
 ## Features
 
-- **Lokale Spracherkennung**: Transkription via [faster-whisper](https://github.com/SYSTRAN/faster-whisper) (schnell, präzise und offline).
+- **Lokale Spracherkennung**: Transkription via [faster-whisper](https://github.com/SYSTRAN/faster-whisper)
 - **Lokale LLM-Integration**: Unterstützung für Modelle via [Ollama](https://ollama.com/) (z. B. Gemma, Qwen).
 - **Autonome Agenten-Fähigkeiten**:
   - Zerlegen komplexer Aufgaben in mehrstufige Ausführungspläne (`create_execution_plan`).
   - Terminal-Befehle ausführen (`execute_terminal_command`).
   - Dateien lesen, schreiben und zeilenbasiert manipulieren (`read_file_with_line_numbers`, `replace_lines`, `insert_at_line`).
   - Webbrowser öffnen und suchen (`open_browser`).
-- **Natürliche Sprachausgabe**: Hochwertige deutsche Sprachausgabe via `edge-tts`.
+- **Deutsche Sprachausgabe**: Edge-TTS
 - **Standby-Modus**: Ein- und Ausschalten per Sprachbefehl (`"standby"`).
 
 ---
@@ -47,7 +45,7 @@ AVA kombiniert lokale Spracherkennung (**Faster-Whisper**), lokale Sprachmodelle
 - **[Ollama](https://ollama.com/)** (installiert und gestartet)
   ```bash
   ollama pull gemma4:latest
-  # Alternativ: qwen2.5:7b, etc.
+  # Alternativ: qwen2.5:7b, etc.. nicht zu empfehlen (zu schwach)
   ```
 - **System-Abhängigkeiten** (z. B. für Audio / PyAudio):
   - Ubuntu/Debian: `sudo apt install python3-pyaudio portaudio19-dev ffmpeg`
@@ -99,14 +97,7 @@ voice-chatbot/
 
 ---
 
-## Sprachsteuerung & Befehle
-
-- **Standby aktivieren / deaktivieren**: Sagen Sie *"Standby"* (pausiert die Verarbeitung oder reaktiviert AVA).
-- **Beenden**: Sagen Sie *"Ausführung beenden"*.
-
----
-
 ## Sicherheitshinweis
 
 > [!CAUTION]
-> Das Tool `execute_terminal_command` erlaubt dem LLM die direkte Ausführung von Shell-Befehlen. Dieses Projekt wurde für persönliche Test- und Prototyping-Zwecke auf lokalen Maschinen entwickelt. Für den produktiven Einsatz wird eine Sandbox-Umgebung (z. B. Docker/Container) empfohlen.
+> Das Tool `execute_terminal_command` erlaubt dem LLM die direkte Ausführung von Shell-Befehlen. Dieses Projekt wurde für persönliche Test- und Prototyping-Zwecke auf lokalen Maschinen entwickelt. Für den produktiven Einsatz wird eine Sandbox-Umgebung (z. B. Docker/Container) empfohlen. Zudem wurde das Projekt nur lokal auf meinem eigenen Rechner getestet.
