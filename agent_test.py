@@ -6,11 +6,11 @@ import tools
 import json
 
 MODEL_NAME = "gemma4:latest"
-ROOT_PATH = "/home/niklas/Dokumente/python/speech-recognizer/"
+BASE_DIR = Path(__file__).resolve().parent
 
 debug = DebugLogger()
 messages = []
-soul_path: Path = Path(ROOT_PATH) / "agent" / "soul.txt"
+soul_path: Path = BASE_DIR / "agent" / "soul.txt"
 if soul_path.exists(): messages.append({"role": "system", "content": soul_path.read_text()})
 
 def handle_task(task: str) -> str:    
@@ -77,7 +77,7 @@ def handle_task(task: str) -> str:
     
     return "Die Aufgabe wurde ohne Fehler bearbeitet."
 
-def get_letter_count(m: list(dict)) -> int:
+def get_letter_count(m: list[dict]) -> int:
     return len(str(m))
 
 # Prompt - Response loop

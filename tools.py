@@ -249,12 +249,15 @@ def create_execution_plan(plan_json: str) -> dict:
     except json.JSONDecodeError as e:
         return f"Fehler bei der JSON-Verarbeitung: {e}"
 
-def mark_step_as_complete() -> True:
+def mark_step_as_complete() -> bool:
     """
     This tool may only be called if a step of a task was completed successfully.
     It marks the step as complete and is used to move onto the next step.
     """
     return True
+
+# Alias for compatibility with prompt instructions
+mark_task_as_completed = mark_step_as_complete
 
 # Include all tools that may be used by LLMs here
 available_functions = [
@@ -274,5 +277,6 @@ available_functions = [
     change_directory,
 
     create_execution_plan,
-    mark_step_as_complete
+    mark_step_as_complete,
+    mark_task_as_completed
 ]

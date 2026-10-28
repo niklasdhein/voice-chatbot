@@ -1,5 +1,13 @@
-#!/usr/bin/env fish
+#!/usr/bin/env bash
+set -e
 
-cd /home/niklas/Dokumente/python/speech-recognizer
-source .venv/bin/activate.fish
-python main.py
+# Navigate to project directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+cd "$SCRIPT_DIR"
+
+# Activate virtual environment if present
+if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+fi
+
+python3 main.py

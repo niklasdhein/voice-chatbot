@@ -37,9 +37,12 @@ pygame.mixer.init()
 dbg = logger.DebugLogger()
 wng = logger.WarningLogger()
 
+BASE_DIR = Path(__file__).resolve().parent
+TMP_DIR = BASE_DIR / "tmp"
+TMP_DIR.mkdir(parents=True, exist_ok=True)
+
 AI_NAME = "AVA"
 MODEL_NAME = "gemma4:latest"     # Available lfm2, qwen2.5:7b, gemma4:latest
-ROOT_PATH = "/home/niklas/Dokumente/python/speech-recognizer/"
 
 whisper = WhisperModel("small", device="cpu", compute_type="int8")    # cuda für gpu
 
@@ -50,7 +53,7 @@ messages = []
 # |  FUNCTIONS  |
 # +-------------+
 
-def get_audio_input() -> AudioData:
+def get_audio_input() -> sr.AudioData:
     """
     Listens for audio input from the user and returns the audio data.
     """
@@ -78,21 +81,24 @@ def speak_response(response: str) -> None:
     """
     Converts the given text response to speech and plays it.
     """
+    mp3_path = TMP_DIR / "output.mp3"
+
     async def _generate():
         communicate = edge_tts.Communicate(response, "de-DE-KatjaNeural", rate="+50%")
-        await communicate.save(f"{ROOT_PATH}tmp/output.mp3")
+        await communicate.save(str(mp3_path))
     
     dbg.log("Generating speech..")
 
     asyncio.run(_generate())    # Generates output mp3 file
 
-    pygame.mixer.music.load(f"{ROOT_PATH}tmp/output.mp3")
+    pygame.mixer.music.load(str(mp3_path))
     dbg.log("Speaking..")
     pygame.mixer.music.play()
     while pygame.mixer.music.get_busy():    # Wait for the audio to finish playing
         pygame.time.Clock().tick(10)
     pygame.mixer.music.unload()             # Unload the audio file to free up resources
-    os.remove(f"{ROOT_PATH}tmp/output.mp3") # Prevent many files existing in different places, when working directories get changed, etc
+    if mp3_path.exists():
+        mp3_path.unlink()                   # Prevent many files existing in different places
 
 def adjust_recognizer(recognizer: sr.Recognizer, microphone: sr.Microphone, duration: float=0.5) -> None:
     """
@@ -155,7 +161,7 @@ def execute_plan_call(call) -> str:
             if resp.message.tool_calls:
                 for call in resp.message.tool_calls:
                     # Check if LLM wants to move on to next step of the plan
-                    if call.function.name == "mark_task_as_completed":
+                    if call.function.name in ("mark_task_as_completed", "mark_step_as_complete"):
                         print("Task solved.")
                         completed_tasks.append(f"{key}: {plan['steps'][key]}")
                         solved = True
@@ -215,7 +221,7 @@ def execute_tool_call(call) -> str:
     
     return f"Tool {function_name} nicht gefunden"
 
-def ask_assistant(m: list(dict)) -> ChatResponse:
+def ask_assistant(m: list[dict]) -> ChatResponse:
     return chat(
         model=MODEL_NAME, 
         messages=m, 
@@ -234,7 +240,7 @@ if __name__ == "__main__":
     dbg.log("Reading soul..")
     
     # Read Soul
-    soul_path = Path(ROOT_PATH) / "agent" / "soul.txt"
+    soul_path = BASE_DIR / "agent" / "soul.txt"
     if soul_path.exists():
         messages.append({"role": "system", "content": soul_path.read_text(encoding="utf-8")})
 
@@ -247,7 +253,7 @@ if __name__ == "__main__":
         if standby: wng.log("In standby.")
 
         # 1. Record audio and transcribe
-        audio: AudioData = get_audio_input()
+        audio: sr.AudioData = get_audio_input()
         transcription: str = transcribe_audio(audio)
         print(f"User: {transcription}")
         

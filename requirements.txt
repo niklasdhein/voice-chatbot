@@ -1,0 +1,6 @@
+faster-whisper>=1.0.0
+SpeechRecognition>=3.10.0
+PyAudio>=0.2.13
+ollama>=0.3.0
+edge-tts>=6.1.0
+pygame>=2.5.0
